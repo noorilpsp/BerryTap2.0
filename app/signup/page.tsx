@@ -6,7 +6,8 @@ import SignupForm from './components/SignupForm'
 import TopMenu from '../login/components/TopMenu'
 
 export default async function SignupPage() {
-  // Check if user is already logged in
+  // Check if user is already logged in (using getSession for faster redirect)
+  // Security: Middleware/proxy already verifies auth, Server Actions use getUser()
   const supabase = await supabaseServer()
   const {
     data: { session },

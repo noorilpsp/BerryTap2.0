@@ -20,27 +20,14 @@ async function prefetchImages(href: string) {
   if (!href.startsWith("/") || href.startsWith("/order") || href === "/") {
     return [];
   }
-  try {
-    const url = new URL(href, window.location.href);
-    const imageResponse = await fetch(`/api/prefetch-images${url.pathname}`, {
-      credentials: 'include', // Include cookies for authenticated routes
-    });
-    
-    if (!imageResponse.ok) {
-      if (process.env.NODE_ENV === "development") {
-        console.warn(`Failed to prefetch images for ${href}: ${imageResponse.status}`);
-      }
-      return [];
-    }
-    
-    const data = await imageResponse.json();
-    return (data.images || []) as PrefetchImage[];
-  } catch (error) {
-    if (process.env.NODE_ENV === "development") {
-      console.warn(`Error prefetching images for ${href}:`, error);
-    }
-    return [];
+  const url = new URL(href, window.location.href);
+  const imageResponse = await fetch(`/api/prefetch-images${url.pathname}`);
+  // only throw in dev
+  if (!imageResponse.ok && process.env.NODE_ENV === "development") {
+    throw new Error("Failed to prefetch images");
   }
+  const { images } = await imageResponse.json();
+  return images as PrefetchImage[];
 }
 
 const seen = new Set<string>();
@@ -62,7 +49,6 @@ function prefetchPermissions() {
 export const Link: typeof NextLink = (({ children, ...props }) => {
   const linkRef = useRef<HTMLAnchorElement>(null);
   const router = useRouter();
-  const prefetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     if (props.prefetch === false) return;
@@ -70,33 +56,32 @@ export const Link: typeof NextLink = (({ children, ...props }) => {
     const linkElement = linkRef.current;
     if (!linkElement) return;
 
-    const href = String(props.href);
-    const isAdminRoute = href.startsWith('/admin');
+    let prefetchTimeout: NodeJS.Timeout | null = null;
 
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         if (entry.isIntersecting) {
-          prefetchTimeoutRef.current = setTimeout(async () => {
-            router.prefetch(href);
+          prefetchTimeout = setTimeout(async () => {
+            router.prefetch(String(props.href));
             await sleep(0);
 
-            if (!imageCache.has(href)) {
-              void prefetchImages(href).then((images) => {
-                imageCache.set(href, images);
+            if (!imageCache.has(String(props.href))) {
+              void prefetchImages(String(props.href)).then((images) => {
+                imageCache.set(String(props.href), images);
               }, console.error);
             }
 
             // Prefetch permissions if this is an admin route
-            if (isAdminRoute) {
+            if (String(props.href).startsWith('/admin')) {
               prefetchPermissions();
             }
 
             observer.unobserve(entry.target);
           }, 300);
-        } else if (prefetchTimeoutRef.current) {
-          clearTimeout(prefetchTimeoutRef.current);
-          prefetchTimeoutRef.current = null;
+        } else if (prefetchTimeout) {
+          clearTimeout(prefetchTimeout);
+          prefetchTimeout = null;
         }
       },
       { rootMargin: "0px", threshold: 0.1 },
@@ -106,8 +91,8 @@ export const Link: typeof NextLink = (({ children, ...props }) => {
 
     return () => {
       observer.disconnect();
-      if (prefetchTimeoutRef.current) {
-        clearTimeout(prefetchTimeoutRef.current);
+      if (prefetchTimeout) {
+        clearTimeout(prefetchTimeout);
       }
     };
   }, [props.href, props.prefetch, router]);
@@ -117,50 +102,21 @@ export const Link: typeof NextLink = (({ children, ...props }) => {
       ref={linkRef}
       prefetch={false}
       onMouseEnter={() => {
+        router.prefetch(String(props.href));
         const href = String(props.href);
-        if (!href || !href.startsWith('/')) return;
-        
-        const isAdminRoute = href.startsWith('/admin');
-        
-        // Prefetch the route (JS and data) - this is critical for Next.js App Router
-        // router.prefetch() works independently of the Link's prefetch prop
-        try {
-          router.prefetch(href);
-        } catch (error) {
-          // Silently handle prefetch errors (e.g., invalid routes)
-          if (process.env.NODE_ENV === 'development') {
-            console.warn('Prefetch error for', href, error);
-          }
-        }
-        
-        // Prefetch images - use cache if available, otherwise fetch
-        const cachedImages = imageCache.get(href);
-        if (cachedImages && cachedImages.length > 0) {
-          // Use cached images
-          for (const image of cachedImages) {
+        const images = imageCache.get(href) || [];
+        if (images.length === 0) {
+          // Fetch images if cache is empty (for immediate hover prefetching)
+          void prefetchImages(href).then((fetchedImages) => {
+            imageCache.set(href, fetchedImages);
+            for (const image of fetchedImages) {
+              prefetchImage(image);
+            }
+          }).catch(console.error);
+        } else {
+          for (const image of images) {
             prefetchImage(image);
           }
-        } else {
-          // Fetch images if not cached yet
-          void prefetchImages(href).then((images) => {
-            if (images && images.length > 0) {
-              imageCache.set(href, images);
-              for (const image of images) {
-                prefetchImage(image);
-              }
-            }
-          }).catch((error) => {
-            // Silently handle image prefetch errors
-            if (process.env.NODE_ENV === 'development') {
-              console.warn('Image prefetch error for', href, error);
-            }
-          });
-        }
-        
-        // Prefetch permissions API if navigating to admin routes
-        // This makes admin navigation faster
-        if (isAdminRoute) {
-          prefetchPermissions();
         }
       }}
       onMouseDown={(e) => {
@@ -185,29 +141,38 @@ export const Link: typeof NextLink = (({ children, ...props }) => {
 }) as typeof NextLink;
 
 function prefetchImage(image: PrefetchImage) {
-  if (!image.src) return; // Skip if no src
-  
-  // Use srcset or src as the key for tracking
+  // Use srcset as key if available, otherwise use src
+  // This matches NextFaster-main's behavior
   const key = image.srcset || image.src;
-  if (image.loading === "lazy" || seen.has(key)) {
+  
+  // Skip if no key, already seen, or explicitly lazy
+  // Note: null/undefined loading means not lazy, so we should prefetch
+  if (!key || seen.has(key) || image.loading === "lazy") {
     return;
   }
   
   const img = new Image();
   img.decoding = "async";
-  // fetchPriority is a valid HTMLImageElement property (experimental)
-  if ('fetchPriority' in img) {
-    // @ts-expect-error - fetchPriority is experimental and not in all TypeScript versions
-    img.fetchPriority = "low";
-  }
+  // @ts-expect-error - fetchPriority is experimental
+  img.fetchPriority = "low";
+  
+  // Set sizes if available
   if (image.sizes) {
     img.sizes = image.sizes;
   }
+  
+  // Mark as seen before setting src (prevents duplicate prefetches)
   seen.add(key);
+  
+  // Set srcset if it exists (Next.js optimized images have this)
   if (image.srcset) {
     img.srcset = image.srcset;
   }
+  
+  // Always set src - this triggers the actual prefetch
   img.src = image.src;
+  
+  // Set alt for accessibility
   if (image.alt) {
     img.alt = image.alt;
   }

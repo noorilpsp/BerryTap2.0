@@ -8,6 +8,7 @@ import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ArrowRight } from 'lucide-react'
+import { login } from '@/app/actions/auth'
 
 export default function LoginForm() {
   const [email, setEmail] = useState('')
@@ -64,46 +65,28 @@ export default function LoginForm() {
     setError(null)
 
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password, remember: keepSignedIn }),
-        credentials: 'include',
+      // Call Server Action directly - no fetch needed!
+      const result = await login({
+        email,
+        password,
+        remember: keepSignedIn,
       })
 
-      const data = await res.json().catch(() => ({}) as any)
-
-      if (!res.ok) {
-        // Handle specific error cases with better messages
-        if (res.status === 401) {
-          throw new Error(
+      if (result.error) {
+        // Handle specific error messages
+        if (result.error.toLowerCase().includes('confirm')) {
+          setError('Please confirm your email from the link we sent before signing in.')
+        } else if (result.error.toLowerCase().includes('invalid')) {
+          setError(
             'Email or password is incorrect. Please check your credentials and try again.',
           )
+        } else {
+          setError(result.error)
         }
-
-        if (res.status === 403) {
-          // Check if backend told us email needs confirmation
-          if (data.message?.toLowerCase().includes('confirm')) {
-            throw new Error('Please confirm your email from the link we sent before signing in.')
-          }
-          throw new Error('Your account is inactive. Please contact your manager for assistance.')
-        }
-
-        if (res.status === 400) {
-          if (data.message?.includes('required')) {
-            throw new Error('Please fill in all required fields.')
-          }
-          throw new Error(data.message || 'Invalid request. Please check your input.')
-        }
-
-        if (res.status === 500) {
-          throw new Error('Server error. Please try again in a few moments.')
-        }
-
-        throw new Error(data.message || 'Login failed. Please try again.')
+        return
       }
 
-      // Force full page reload to ensure cookies are available
+      // Success - force full page reload to ensure cookies are available
       window.location.href = '/dashboard'
     } catch (err) {
       if (err instanceof Error) {

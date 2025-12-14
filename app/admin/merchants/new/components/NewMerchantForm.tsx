@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { optimizeImage } from '@/lib/utils/imageOptimization'
+import { uploadImage, createMerchant } from '@/app/actions/merchants'
 
 const businessTypes = [
   { value: 'restaurant', label: 'Restaurant' },
@@ -173,22 +174,21 @@ export function NewMerchantForm() {
   }
 
   const uploadFile = async (file: File): Promise<string> => {
-    // Upload file to Vercel Blob via API
+    // Upload file to Vercel Blob via Server Action
     const formData = new FormData()
     formData.append('file', file)
 
-    const response = await fetch('/api/admin/merchants/upload', {
-      method: 'POST',
-      body: formData,
-    })
+    const result = await uploadImage(formData)
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Failed to upload file' }))
-      throw new Error(error.error || 'Failed to upload file')
+    if (result.error) {
+      throw new Error(result.error)
     }
 
-    const { url } = await response.json()
-    return url
+    if (!result.url) {
+      throw new Error('Failed to upload file')
+    }
+
+    return result.url
   }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -243,35 +243,25 @@ export function NewMerchantForm() {
         bannerUrl = await uploadFile(bannerFile)
       }
 
-      // Submit to API to create the merchant
+      // Submit to Server Action to create the merchant
       setSubmitStatus('Creating merchant...')
-      const response = await fetch('/api/admin/merchants', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...parsed.data,
-          logoUrl,
-          bannerUrl,
-          country: values.country,
-        }),
+      const result = await createMerchant({
+        ...parsed.data,
+        logoUrl,
+        bannerUrl,
+        country: values.country,
       })
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to create merchant' }))
-        
+      if (result.error) {
         // Handle specific error cases
-        if (response.status === 403) {
+        if (result.error.includes('Forbidden') || result.error.includes('permission')) {
           throw new Error('You do not have permission to create merchants')
-        } else if (response.status === 400) {
-          throw new Error(errorData.error || 'Invalid data. Please check all required fields.')
-        } else if (response.status === 500) {
-          throw new Error(errorData.error || 'Server error. Please try again later.')
+        } else if (result.error.includes('Invalid') || result.error.includes('required')) {
+          throw new Error(result.error || 'Invalid data. Please check all required fields.')
         } else {
-          throw new Error(errorData.error || 'Failed to create merchant')
+          throw new Error(result.error || 'Failed to create merchant')
         }
       }
-
-      const result = await response.json()
 
       // Show success message
       toast.success('Merchant created successfully', {

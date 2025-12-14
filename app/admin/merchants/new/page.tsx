@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import dynamicImport from 'next/dynamic'
+import Image from 'next/image'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 
@@ -39,6 +40,17 @@ export default function NewMerchantPage() {
         <p className="text-muted-foreground">
           Capture core business, first location, and owner/subscription details. Validation and submission will be added later.
         </p>
+        {/* Image for prefetch testing - visible in initial HTML */}
+        <div className="mt-4">
+          <Image
+            src="/BerryTapSVG.svg"
+            alt="BerryTap Logo"
+            width={100}
+            height={50}
+            className="opacity-50"
+            priority
+          />
+        </div>
       </div>
 
       {/* Non-critical: Form streams in via Suspense */}

@@ -17,15 +17,15 @@ type CurrentUser = {
 export async function getCurrentUser(): Promise<CurrentUser | null> {
   const supabase = await supabaseServer()
   const {
-    data: { session },
-  } = await supabase.auth.getSession()
+    data: { user },
+  } = await supabase.auth.getUser()
 
-  if (!session?.user) {
+  if (!user) {
     return null
   }
 
-  const userId = session.user.id
-  const userEmail = session.user.email ?? null
+  const userId = user.id
+  const userEmail = user.email ?? null
 
   // Cache the profile fetch to avoid repeated database queries
   // Cache is keyed by user ID and revalidates every 5 minutes

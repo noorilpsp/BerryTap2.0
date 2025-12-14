@@ -5,8 +5,8 @@ import { supabaseServer } from '@/lib/supabaseServer'
 export async function GET() {
   const supabase = await supabaseServer()
   const {
-    data: { session },
-  } = await supabase.auth.getSession()
+    data: { user },
+  } = await supabase.auth.getUser()
 
-  return NextResponse.json({ hasSession: !!session })
+  return NextResponse.json({ hasSession: !!user })
 }

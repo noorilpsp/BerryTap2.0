@@ -8,7 +8,8 @@ import TopMenu from './components/TopMenu' // new client component below
 
 export default async function LoginPage() {
   unstable_noStore()
-  // Check if user is already logged in
+  // Check if user is already logged in (using getSession for faster redirect)
+  // Security: Middleware/proxy already verifies auth, Server Actions use getUser()
   const supabase = await supabaseServer()
   const {
     data: { session },

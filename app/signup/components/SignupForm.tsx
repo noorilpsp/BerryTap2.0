@@ -7,6 +7,7 @@ import { Link } from '@/components/ui/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { ArrowRight } from 'lucide-react'
+import { signup } from '@/app/actions/auth'
 
 export default function SignupForm() {
   const [email, setEmail] = useState('')
@@ -63,37 +64,19 @@ export default function SignupForm() {
     setError(null)
 
     try {
-      const res = await fetch('/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-        credentials: 'include',
+      // Call Server Action directly - no fetch needed!
+      const result = await signup({
+        email,
+        password,
       })
 
-      const data = await res.json().catch(() => ({} as any))
-
-      if (!res.ok) {
-        // Handle specific error cases with better messages
-        if (res.status === 400) {
-          if (data.message?.includes('required')) {
-            throw new Error('Please fill in all required fields.')
-          }
-          throw new Error(data.message || 'Invalid request. Please check your input.')
-        }
-
-        if (res.status === 409) {
-          throw new Error('An account with this email already exists. Please sign in instead.')
-        }
-
-        if (res.status === 500) {
-          throw new Error('Server error. Please try again in a few moments.')
-        }
-
-        throw new Error(data.message || 'Signup failed. Please try again.')
+      if (result.error) {
+        setError(result.error)
+        return
       }
 
       // Check if email confirmation is required
-      if (!data.session) {
+      if (!result.session) {
         // Email confirmation required
         setNeedsConfirmation(true)
         return

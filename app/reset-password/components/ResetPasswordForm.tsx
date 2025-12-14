@@ -7,6 +7,7 @@ import { Link } from '@/components/ui/link'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { ArrowRight } from 'lucide-react'
+import { resetPassword } from '@/app/actions/auth'
 
 export default function ResetPasswordForm() {
   const [password, setPassword] = useState('')
@@ -128,29 +129,11 @@ export default function ResetPasswordForm() {
         }
       }
 
-      const res = await fetch('/api/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-        credentials: 'include',
-      })
+      // Call Server Action directly - no fetch needed!
+      const result = await resetPassword({ password })
 
-      const data = await res.json().catch(() => ({} as any))
-
-      if (!res.ok) {
-        if (res.status === 400) {
-          throw new Error(data.message || 'Invalid request. Please check your input.')
-        }
-
-        if (res.status === 401) {
-          throw new Error('Invalid or expired reset link. Please request a new password reset.')
-        }
-
-        if (res.status === 500) {
-          throw new Error('Server error. Please try again in a few moments.')
-        }
-
-        throw new Error(data.message || 'Failed to reset password. Please try again.')
+      if (result.error) {
+        throw new Error(result.error)
       }
 
       setSuccess(true)

@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import { optimizeImage } from '@/lib/utils/imageOptimization'
+import { uploadImage, updateMerchant } from '@/app/actions/merchants'
 
 const businessTypes = [
   { value: 'restaurant', label: 'Restaurant' },
@@ -233,21 +234,21 @@ export function EditMerchantForm({ merchant, location }: EditMerchantFormProps) 
   }
 
   const uploadFile = async (file: File): Promise<string> => {
+    // Upload file to Vercel Blob via Server Action
     const formData = new FormData()
     formData.append('file', file)
 
-    const response = await fetch('/api/admin/merchants/upload', {
-      method: 'POST',
-      body: formData,
-    })
+    const result = await uploadImage(formData)
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Failed to upload file' }))
-      throw new Error(error.error || 'Failed to upload file')
+    if (result.error) {
+      throw new Error(result.error)
     }
 
-    const { url } = await response.json()
-    return url
+    if (!result.url) {
+      throw new Error('Failed to upload file')
+    }
+
+    return result.url
   }
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -307,37 +308,29 @@ export function EditMerchantForm({ merchant, location }: EditMerchantFormProps) 
         bannerUrl = location.bannerUrl
       }
 
-      // Submit to API to update the merchant
+      // Submit to Server Action to update the merchant
       setSubmitStatus('Updating merchant...')
-      const response = await fetch(`/api/admin/merchants/${merchant.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...parsed.data,
-          logoUrl,
-          bannerUrl,
-          country: values.country,
-          locationId: location?.id,
-        }),
+      const result = await updateMerchant({
+        ...parsed.data,
+        id: merchant.id,
+        logoUrl,
+        bannerUrl,
+        country: values.country,
+        locationId: location?.id,
       })
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to update merchant' }))
-
-        if (response.status === 403) {
+      if (result.error) {
+        // Handle specific error cases
+        if (result.error.includes('Forbidden') || result.error.includes('permission')) {
           throw new Error('You do not have permission to update merchants')
-        } else if (response.status === 400) {
-          throw new Error(errorData.error || 'Invalid data. Please check all required fields.')
-        } else if (response.status === 404) {
+        } else if (result.error.includes('Invalid') || result.error.includes('required')) {
+          throw new Error(result.error || 'Invalid data. Please check all required fields.')
+        } else if (result.error.includes('not found')) {
           throw new Error('Merchant not found')
-        } else if (response.status === 500) {
-          throw new Error(errorData.error || 'Server error. Please try again later.')
         } else {
-          throw new Error(errorData.error || 'Failed to update merchant')
+          throw new Error(result.error || 'Failed to update merchant')
         }
       }
-
-      const result = await response.json()
 
       toast.success('Merchant updated successfully', {
         description: `${result.merchant?.name || 'Merchant'} has been updated.`,
